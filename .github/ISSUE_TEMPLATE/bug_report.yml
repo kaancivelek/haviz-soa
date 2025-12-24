@@ -1,0 +1,44 @@
+name: Bug Report
+description: Report a bug in the weather service
+title: "[BUG] "
+labels: ["bug"]
+
+body:
+  - type: textarea
+    attributes:
+      label: Description
+      description: Describe the bug
+      placeholder: What happened?
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: Steps to Reproduce
+      description: Steps to reproduce the behavior
+      placeholder: |
+        1. Call endpoint...
+        2. Send request...
+        3. Error occurs...
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: Expected Behavior
+      description: What should happen
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: Logs
+      description: Relevant logs from `./logs/requests/`
+      render: json
+
+  - type: input
+    attributes:
+      label: Environment
+      placeholder: "Node v25.0.0, npm 10.x"
+    validations:
+      required: true
