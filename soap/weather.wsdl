@@ -1,0 +1,97 @@
+<definitions
+  name="WeatherService"
+  targetNamespace="http://example.com/weather"
+  xmlns="http://schemas.xmlsoap.org/wsdl/"
+  xmlns:soap="http://schemas.xmlsoap.org/wsdl/soap/"
+  xmlns:tns="http://example.com/weather"
+  xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+
+	<types>
+		<xsd:schema targetNamespace="http://example.com/weather">
+			<xsd:element name="GetWeatherRequest">
+				<xsd:complexType>
+					<xsd:sequence>
+						<xsd:element name="Latitude" type="xsd:double"/>
+						<xsd:element name="Longitude" type="xsd:double"/>
+					</xsd:sequence>
+				</xsd:complexType>
+			</xsd:element>
+
+			<!-- Observation tipleri (ASP.NET ObservationIngestDto ile uyumlu) -->
+			<xsd:complexType name="Observation">
+				<xsd:sequence>
+					<xsd:element name="lat" type="xsd:decimal"/>
+					<xsd:element name="lon" type="xsd:decimal"/>
+					<xsd:element name="name" type="xsd:string" minOccurs="0"/>
+					<xsd:element name="city" type="xsd:string" minOccurs="0"/>
+					<xsd:element name="country_code" type="xsd:string" minOccurs="0"/>
+					<xsd:element name="timezone" type="xsd:string" minOccurs="0"/>
+					<xsd:element name="observed_at" type="xsd:dateTime"/>
+					<xsd:element name="temperature_c" type="xsd:decimal" minOccurs="0"/>
+					<xsd:element name="sunshine_min" type="xsd:unsignedShort" minOccurs="0"/>
+					<xsd:element name="shortwave_w_m2" type="xsd:decimal" minOccurs="0"/>
+					<xsd:element name="precip_mm" type="xsd:decimal" minOccurs="0"/>
+					<xsd:element name="humidity_pct" type="xsd:unsignedByte" minOccurs="0"/>
+					<xsd:element name="cloud_cover_pct" type="xsd:unsignedByte" minOccurs="0"/>
+					<xsd:element name="wind_speed_kmh" type="xsd:decimal" minOccurs="0"/>
+					<xsd:element name="wind_dir_deg" type="xsd:unsignedShort" minOccurs="0"/>
+				</xsd:sequence>
+			</xsd:complexType>
+
+			<xsd:complexType name="ArrayOfObservation">
+				<xsd:sequence>
+					<xsd:element name="Observation" type="tns:Observation" maxOccurs="unbounded" minOccurs="0"/>
+				</xsd:sequence>
+			</xsd:complexType>
+
+			<xsd:element name="GetWeatherResponse">
+				<xsd:complexType>
+					<xsd:sequence>
+						<!-- Ham JSON'u string olarak da döndürelim (gerekirse) -->
+						<xsd:element name="Json" type="xsd:string" minOccurs="0"/>
+						<!-- Observation listesi -->
+						<xsd:element name="Observations" type="tns:ArrayOfObservation"/>
+						<!-- Özet alanlar -->
+						<xsd:element name="Temperature" type="xsd:double"/>
+						<xsd:element name="Humidity" type="xsd:double"/>
+						<xsd:element name="Status" type="xsd:string"/>
+					</xsd:sequence>
+				</xsd:complexType>
+			</xsd:element>
+		</xsd:schema>
+	</types>
+
+	<message name="GetWeatherInput">
+		<part name="parameters" element="tns:GetWeatherRequest"/>
+	</message>
+
+	<message name="GetWeatherOutput">
+		<part name="parameters" element="tns:GetWeatherResponse"/>
+	</message>
+
+	<portType name="WeatherPortType">
+		<operation name="GetWeather">
+			<input message="tns:GetWeatherInput"/>
+			<output message="tns:GetWeatherOutput"/>
+		</operation>
+	</portType>
+
+	<binding name="WeatherBinding" type="tns:WeatherPortType">
+		<soap:binding style="document" transport="http://schemas.xmlsoap.org/soap/http"/>
+		<operation name="GetWeather">
+			<soap:operation soapAction="GetWeather"/>
+			<input>
+				<soap:body use="literal"/>
+			</input>
+			<output>
+				<soap:body use="literal"/>
+			</output>
+		</operation>
+	</binding>
+
+	<service name="WeatherService">
+		<port name="WeatherPort" binding="tns:WeatherBinding">
+			<soap:address location="http://localhost:3000/soap"/>
+		</port>
+	</service>
+</definitions>

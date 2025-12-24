@@ -1,8 +1,12 @@
 require('dotenv').config();
 const express = require('express');
-const { fetchWeatherSOAP } = require('./soap/soapServer');
+const http = require('http');
+const path = require('path');
+const { fork } = require('child_process');
+
 const { fetchWeather } = require('./meteoblueClient');
 const { logRequest } = require('./logger');
+const { initSoapServer, fetchWeatherSOAP } = require('./soap/soapServer');
 
 const app = express();
 const PORT = parseInt(process.env.PORT) || 3000;
@@ -12,7 +16,7 @@ app.use(express.raw({ type: '*/*', limit: '10mb' }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// SOAP isteği için endpoint (ASP.NET Minimal API'den gelecek)
+// SOAP isteği için endpoint (ASP.NET Minimal API'den gelecek) - JSON döner
 app.get('/fetchWeather', async (req, res) => {
   try {
     const { lat, lon, startDate, numDays } = req.query;
@@ -165,17 +169,33 @@ app.get('/logs/files', (req, res) => {
   });
 });
 
-// Express sunucusunu başlat
-app.listen(PORT, () => {
+// Tek HTTP server üzerinden Express + SOAP + gRPC
+const server = http.createServer(app);
+
+server.listen(PORT, () => {
   console.log(`\n=== SOAP/REST Server ===`);
   console.log(`Server listening on http://localhost:${PORT}`);
   console.log(`\nEndpoints:`);
-  console.log(`  GET /fetchWeather?lat=38.42&lon=27.14&startDate=2025-12-14&numDays=3 (SOAP)`);
+  console.log(`  GET /fetchWeather?lat=38.42&lon=27.14&startDate=2025-12-14&numDays=3 (SOAP(XML)- to JSON)`);
   console.log(`  GET /fetchWeatherJson?lat=38.42&lon=27.14 (JSON)`);
   console.log(`  GET /health`);
+  console.log(`\n=== Starting SOAP Server ===`);
+
+  // Gerçek SOAP server'ı aynı HTTP server üzerinde başlat
+  initSoapServer(server);
+
   console.log(`\n=== Starting gRPC Server ===\n`);
 
   // gRPC sunucusunu başlat - mutlak yol ile
   delete require.cache[require.resolve('./grpc/grpcServer')];
   require(require('path').resolve(__dirname, 'grpc/grpcServer'));
+
+  // Core API'ye veri push eden job'u server start'ta tetikle
+  try {
+    const pushScript = path.resolve(__dirname, 'pushToCoreApi.js');
+    fork(pushScript, { stdio: 'inherit' });
+    console.log('pushToCoreApi.js başlatıldı (arka planda çalışıyor)');
+  } catch (err) {
+    console.error('pushToCoreApi.js başlatılamadı:', err.message);
+  }
 });
