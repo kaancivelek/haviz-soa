@@ -1,22 +1,23 @@
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
-require('dotenv').config();
-const axios = require('axios');
-const https = require('https');
-const { fetchWeatherSOAP } = require('./soap/soapServer');
-const grpc = require('@grpc/grpc-js');
-const protoLoader = require('@grpc/proto-loader');
+require("dotenv").config();
+const axios = require("axios");
+const https = require("https");
+const { fetchWeatherSOAP } = require("./soap/soapServer");
+const grpc = require("@grpc/grpc-js");
+const protoLoader = require("@grpc/proto-loader");
 
 const LAT = 38.423733;
 const LON = 27.142826;
 
-const CORE_OBS_BATCH_URL = 'https://localhost:7031/api/ingest/observations/batch';
-const CORE_LOG_BATCH_URL = 'https://localhost:7031/api/api-log/batch';
+const CORE_OBS_BATCH_URL =
+  "https://localhost:7031/api/ingest/observations/batch";
+const CORE_LOG_BATCH_URL = "https://localhost:7031/api/api-log/batch";
 
-const PROTO_PATH = './grpc/weather.proto';
-const GRPC_ADDR = 'localhost:50051';
+const PROTO_PATH = "./grpc/weather.proto";
+const GRPC_ADDR = "localhost:50051";
 
 function toIsoNoZone(t) {
-  if (typeof t !== 'string') return t;
+  if (typeof t !== "string") return t;
   return t.length === 16 ? `${t}:00` : t;
 }
 
@@ -25,9 +26,9 @@ function buildDtos(data) {
     lat: data.latitude,
     lon: data.longitude,
     timezone: data.timezone,
-    name: 'Izmir',
-    city: 'Izmir',
-    country_code: 'TR',
+    name: "Izmir",
+    city: "Izmir",
+    country_code: "TR",
   };
 
   const h = data.hourly || {};
@@ -56,36 +57,31 @@ function buildDtos(data) {
 
 async function sendApiLog(log) {
   try {
-    await axios.post(
-      CORE_LOG_BATCH_URL,
-      [log],
-      { headers: { 'Content-Type': 'application/json' }, timeout: 20000 }
-    );
+    await axios.post(CORE_LOG_BATCH_URL, [log], {
+      headers: { "Content-Type": "application/json" },
+      timeout: 20000,
+    });
   } catch (e) {
-    console.warn('api_log gönderilemedi:', e?.response?.status, e?.message);
+    console.warn("api_log gönderilemedi:", e?.response?.status, e?.message);
   }
 }
 
 async function postObservationsWithLog(dtos, source) {
   const started = Date.now();
   try {
-    const resp = await axios.post(
-      CORE_OBS_BATCH_URL,
-      dtos,
-      {
-        headers: { 'Content-Type': 'application/json' },
-        timeout: 60000,
-        maxBodyLength: Infinity,
-        maxContentLength: Infinity,
-        httpsAgent: new https.Agent({ rejectUnauthorized: false }),
-      }
-    );
+    const resp = await axios.post(CORE_OBS_BATCH_URL, dtos, {
+      headers: { "Content-Type": "application/json" },
+      timeout: 60000,
+      maxBodyLength: Infinity,
+      maxContentLength: Infinity,
+      httpsAgent: new https.Agent({ rejectUnauthorized: false }),
+    });
 
     const ms = Date.now() - started;
     await sendApiLog({
       user_id: null,
-      endpoint: '/api/ingest/observations/batch',
-      method: 'POST',
+      endpoint: "/api/ingest/observations/batch",
+      method: "POST",
       request_ts: new Date().toISOString(),
       status_code: resp.status,
       response_ms: ms,
@@ -99,8 +95,8 @@ async function postObservationsWithLog(dtos, source) {
     const status = e?.response?.status ?? 0;
     await sendApiLog({
       user_id: null,
-      endpoint: '/api/ingest/observations/batch',
-      method: 'POST',
+      endpoint: "/api/ingest/observations/batch",
+      method: "POST",
       request_ts: new Date().toISOString(),
       status_code: status,
       response_ms: ms,
@@ -122,10 +118,17 @@ async function fetchViaGrpc() {
   });
 
   const pkg = grpc.loadPackageDefinition(def);
-  const WeatherService = pkg.WeatherService || (pkg.weather && pkg.weather.WeatherService);
-  if (!WeatherService) throw new Error('WeatherService bulunamadı (proto package adı farklı olabilir).');
+  const WeatherService =
+    pkg.WeatherService || (pkg.weather && pkg.weather.WeatherService);
+  if (!WeatherService)
+    throw new Error(
+      "WeatherService bulunamadı (proto package adı farklı olabilir)."
+    );
 
-  const client = new WeatherService(GRPC_ADDR, grpc.credentials.createInsecure());
+  const client = new WeatherService(
+    GRPC_ADDR,
+    grpc.credentials.createInsecure()
+  );
 
   const jsonStr = await new Promise((resolve, reject) => {
     client.GetWeather({ lat: LAT, lon: LON }, (err, resp) => {
@@ -143,35 +146,40 @@ async function fetchWeatherWithFallback() {
   try {
     const soapResult = await fetchWeatherSOAP(LAT, LON);
     if (soapResult?.json) {
-      return { data: soapResult.json, source: 'SOAP->JSON' };
+      return { data: soapResult.json, source: "SOAP->JSON" };
     }
   } catch (e) {
-    console.warn('SOAP fetch failed:', e.message);
+    console.warn("SOAP fetch failed:", e.message);
   }
 
   // SOAP başarısızsa gRPC
   try {
     const grpcData = await fetchViaGrpc();
     if (grpcData) {
-      return { data: grpcData, source: 'gRPC' };
+      return { data: grpcData, source: "gRPC" };
     }
   } catch (e) {
-    console.warn('gRPC fetch failed:', e.message);
+    console.warn("gRPC fetch failed:", e.message);
   }
 
-  throw new Error('Her iki kaynak da çalışmadı (SOAP ve gRPC)');
+  throw new Error("Her iki kaynak da çalışmadı (SOAP ve gRPC)");
 }
 
 // ------------------ Main ------------------
 async function main() {
   const { data, source } = await fetchWeatherWithFallback();
   const dtos = buildDtos(data);
-  console.log('DTO count:', dtos.length);
+  console.log("DTO count:", dtos.length);
 
   const resp = await postObservationsWithLog(dtos, source);
-  console.log('Core API response:', resp.status, resp.data);
+  console.log("Core API response:", resp.status, resp.data);
 }
 
-main().catch(e => {
-  console.error('FAILED:', { code: e?.code, message: e?.message, status: e?.response?.status, data: e?.response?.data });
+main().catch((e) => {
+  console.error("FAILED:", {
+    code: e?.code,
+    message: e?.message,
+    status: e?.response?.status,
+    data: e?.response?.data,
+  });
 });

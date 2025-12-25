@@ -1,12 +1,12 @@
-const soap = require('soap');
-const fs = require('fs');
-const path = require('path');
-const { fetchWeather } = require('../meteoblueClient');
+const soap = require("soap");
+const fs = require("fs");
+const path = require("path");
+const { fetchWeather } = require("../farApi");
 
-const wsdl = fs.readFileSync(path.join(__dirname, 'weather.wsdl'), 'utf8');
+const wsdl = fs.readFileSync(path.join(__dirname, "weather.wsdl"), "utf8");
 
 function toIsoNoZone(t) {
-  if (typeof t !== 'string') return t;
+  if (typeof t !== "string") return t;
   return t.length === 16 ? `${t}:00` : t;
 }
 
@@ -15,21 +15,21 @@ function buildDtos(data) {
     lat: data.latitude,
     lon: data.longitude,
     timezone: data.timezone,
-    name: 'Izmir',
-    city: 'Izmir',
-    country_code: 'TR',
+    name: "Izmir",
+    city: "Izmir",
+    country_code: "TR",
   };
 
   const h = data.hourly || {};
 
-  const times   = h.time || [];
-  const temp    = h.temperature_2m || [];
-  const hum     = h.relative_humidity_2m || [];
-  const wind    = h.wind_speed_10m || [];
-  const precip  = h.precipitation || [];
-  const cloud   = h.cloud_cover || [];
-  const sunSec  = h.sunshine_duration || [];
-  const rad     = h.direct_radiation || [];
+  const times = h.time || [];
+  const temp = h.temperature_2m || [];
+  const hum = h.relative_humidity_2m || [];
+  const wind = h.wind_speed_10m || [];
+  const precip = h.precipitation || [];
+  const cloud = h.cloud_cover || [];
+  const sunSec = h.sunshine_duration || [];
+  const rad = h.direct_radiation || [];
 
   return times.map((t, i) => ({
     lat: meta.lat,
@@ -70,7 +70,7 @@ const service = {
           },
           Temperature: current?.temperature_2m ?? 0,
           Humidity: current?.relative_humidity_2m ?? 0,
-          Status: 'OK',
+          Status: "OK",
         };
       },
     },
@@ -78,21 +78,25 @@ const service = {
 };
 
 function initSoapServer(server) {
-  soap.listen(server, '/soap', service, wsdl);
-  console.log('SOAP server running at /soap');
+  soap.listen(server, "/soap", service, wsdl);
+  console.log("SOAP server running at /soap");
 }
 
 async function fetchWeatherSOAP(lat, lon) {
-  const wsdlUrl = 'http://localhost:' + (process.env.PORT || 3000) + '/soap?wsdl';
+  const wsdlUrl =
+    "http://localhost:" + (process.env.PORT || 3000) + "/soap?wsdl";
   const client = await soap.createClientAsync(wsdlUrl);
-  const [result] = await client.GetWeatherAsync({ Latitude: lat, Longitude: lon });
+  const [result] = await client.GetWeatherAsync({
+    Latitude: lat,
+    Longitude: lon,
+  });
 
   return {
     observations: result.Observations?.Observation || [],
     json: result.Json ? JSON.parse(result.Json) : null,
     temperature: result.Temperature ?? null,
     humidity: result.Humidity ?? null,
-    status: result.Status ?? 'UNKNOWN',
+    status: result.Status ?? "UNKNOWN",
   };
 }
 
