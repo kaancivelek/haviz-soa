@@ -1,12 +1,10 @@
 const soap = require('soap');
 const fs = require('fs');
 const path = require('path');
-const axios = require('axios');
 const { fetchWeather } = require('../meteoblueClient');
 
 const wsdl = fs.readFileSync(path.join(__dirname, 'weather.wsdl'), 'utf8');
 
-// Open-Meteo JSON'u ObservationIngestDto benzeri objelere map eden yardımcı
 function toIsoNoZone(t) {
   if (typeof t !== 'string') return t;
   return t.length === 16 ? `${t}:00` : t;
@@ -23,14 +21,15 @@ function buildDtos(data) {
   };
 
   const h = data.hourly || {};
-  const times = h.time || [];
-  const temp = h.temperature_2m || [];
-  const hum = h.relative_humidity_2m || [];
-  const wind = h.wind_speed_10m || [];
-  const precip = h.precipitation || [];
-  const cloud = h.cloud_cover || [];
-  const sunSec = h.sunshine_duration || [];
-  const rad = h.direct_radiation || [];
+
+  const times   = h.time || [];
+  const temp    = h.temperature_2m || [];
+  const hum     = h.relative_humidity_2m || [];
+  const wind    = h.wind_speed_10m || [];
+  const precip  = h.precipitation || [];
+  const cloud   = h.cloud_cover || [];
+  const sunSec  = h.sunshine_duration || [];
+  const rad     = h.direct_radiation || [];
 
   return times.map((t, i) => ({
     lat: meta.lat,
@@ -39,7 +38,6 @@ function buildDtos(data) {
     city: meta.city,
     country_code: meta.country_code,
     timezone: meta.timezone,
-
     observed_at: toIsoNoZone(t),
     temperature_c: temp[i] ?? null,
     sunshine_min: sunSec[i] != null ? Math.round(sunSec[i] / 60) : null,
@@ -52,7 +50,6 @@ function buildDtos(data) {
   }));
 }
 
-// Gerçek SOAP servisi - dış sistemler için
 const service = {
   WeatherService: {
     WeatherPort: {
@@ -64,30 +61,13 @@ const service = {
         const current = data.current;
         const observations = buildDtos(data);
 
-        // İsteğe bağlı: ASP.NET ingest endpoint'ine push (örnek URL, güncelle)
-        try {
-          await axios.post(
-            'https://localhost:7031/api/weather',
-            {
-              lat,
-              lon,
-              temperature: current?.temperature_2m,
-              humidity: current?.relative_humidity_2m,
-              source: 'open-meteo',
-            },
-            { timeout: 30000 }
-          );
-        } catch (err) {
-          console.warn('ASP.NET push failed:', err.message);
-        }
+        // SOAP sadece veri üretir, REST push yapılmaz
 
-        // SOAP cevabı:
-        // - Json: Open-Meteo response'un tamamı (string)
-        // - Observations: ObservationIngestDto uyumlu liste
-        // - Temperature/Humidity/Status: özet alanlar
         return {
           Json: JSON.stringify(data),
-          Observations: { Observation: observations },
+          Observations: {
+            Observation: observations,
+          },
           Temperature: current?.temperature_2m ?? 0,
           Humidity: current?.relative_humidity_2m ?? 0,
           Status: 'OK',
@@ -102,29 +82,17 @@ function initSoapServer(server) {
   console.log('SOAP server running at /soap');
 }
 
-// REST /fetchWeather endpoint'i için: gerçek SOAP'ı çağırır, gelen sonucu JSON'a çevirir
 async function fetchWeatherSOAP(lat, lon) {
   const wsdlUrl = 'http://localhost:' + (process.env.PORT || 3000) + '/soap?wsdl';
-
   const client = await soap.createClientAsync(wsdlUrl);
   const [result] = await client.GetWeatherAsync({ Latitude: lat, Longitude: lon });
 
-  // SOAP cevabından Observations'ı ve Json'u al; yoksa özet alanlarla fallback yap
-  if (result?.Observations?.Observation) {
-    return {
-      observations: result.Observations.Observation,
-      json: result.Json ? JSON.parse(result.Json) : null,
-      temperature: result?.Temperature ?? null,
-      humidity: result?.Humidity ?? null,
-      status: result?.Status ?? 'UNKNOWN',
-    };
-  }
-
-  // Geriye dönük en minimal JSON (sadece özet)
   return {
-    temperature: result?.Temperature ?? null,
-    humidity: result?.Humidity ?? null,
-    status: result?.Status ?? 'UNKNOWN',
+    observations: result.Observations?.Observation || [],
+    json: result.Json ? JSON.parse(result.Json) : null,
+    temperature: result.Temperature ?? null,
+    humidity: result.Humidity ?? null,
+    status: result.Status ?? 'UNKNOWN',
   };
 }
 

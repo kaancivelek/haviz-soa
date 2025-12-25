@@ -20,7 +20,7 @@ async function fetchWeather(lat, lon) {
         current: 'temperature_2m,relative_humidity_2m,wind_speed_10m,precipitation,cloud_cover,pressure_msl',
         timezone: 'auto',
         past_days: 3,
-        forecast_days: 1
+        forecast_days: 0
       },
       timeout: REST_TIMEOUT
     });
