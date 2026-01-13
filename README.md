@@ -1,244 +1,135 @@
-# Havadurumu SOA - Weather Service
+## Weather SOA Service
 
-## Genel Bakış
+Node.js service that exposes the same weather data over REST, SOAP, and gRPC. It pulls hourly observations for the last 3 days from the Open-Meteo API and can forward observations to an external .NET Core backend.
 
-Bu proje ASP.NET backend'ten gelen istekleri iki farklı protokolle destekler:
-1. **SOAP/REST** - XML formatında hava durumu verisi
-2. **gRPC** - JSON formatında hava durumu verisi
+## Features
 
-## Kurulum
+- REST JSON endpoint for direct weather fetches
+- SOAP service with WSDL under `/soap` plus a REST-to-SOAP bridge at `/fetchWeather`
+- gRPC server with `GetWeather` returning the raw JSON payload
+- Structured request logging to rotating daily files in `logs/requests`
+- Background job (`pushToCoreApi.js`) that fetches via SOAP with gRPC fallback and posts batches to a Core API
+- Health check and lightweight test clients for SOAP and gRPC
+
+## Requirements
+
+- Node.js 18+ recommended
+- Internet access to reach `https://api.open-meteo.com`
+
+## Setup
 
 ```bash
 npm install
 ```
 
-## Yapılandırma
+Environment variables (optional, defaults shown):
 
+```
 PORT=3000
 GRPC_PORT=50051
+OPEN_METEO_API_URL=https://api.open-meteo.com/v1/forecast
+DEFAULT_LAT=38.4127
+DEFAULT_LON=27.1384
+REST_TIMEOUT=30000
 ```
 
-## Başlatma
+## Run
 
 ```bash
 node server.js
 ```
 
-Başarılı başlatma çıktısı:
+What starts:
+
+- REST/SOAP server on `http://localhost:3000`
+- SOAP service at `/soap` with WSDL at `/soap?wsdl`
+- gRPC server on `localhost:${GRPC_PORT}`
+- Background job `pushToCoreApi.js` (posts to the Core API URLs hard-coded in that file)
+
+Example startup log:
+
 ```
 === SOAP/REST Server ===
 Server listening on http://localhost:3000
-
 Endpoints:
-  GET /fetchWeather?lat=38.42&lon=27.14&startDate=2025-12-14&numDays=3 (SOAP)
-  GET /fetchWeatherJson?lat=38.42&lon=27.14 (JSON)
+  GET /fetchWeather?lat=38.42&lon=27.14&startDate=2025-12-14&numDays=3 (SOAP->JSON)
+  GET /fetchWeatherJson?lat=38.42&lon=27.14 (REST JSON)
   GET /health
-
-=== Starting gRPC Server ===
-
-gRPC Server running on port 50051
+SOAP server initialized on same HTTP server
+gRPC server started
 ```
 
-## API Endpoints
+## Endpoints
 
-### 1. SOAP TO REST Endpoint (Port 3000)
+- REST JSON: `GET /fetchWeatherJson?lat=38.423733&lon=27.142826`
+  - Returns the raw Open-Meteo JSON. `lat` and `lon` are required.
 
-**SOAP Formatından RESTE:**
-```
-GET http://localhost:3000/fetchWeather?lat=38.423733&lon=27.142826&startDate=2025-12-14&numDays=3
-```
-
-**Parametreler:**
-- `lat` (float, required): Enlem
-- `lon` (float, required): Boylam
-- `startDate` (string, optional): Başlangıç tarihi YYYY-MM-DD formatında
-- `numDays` (number, optional): Gün sayısı (varsayılan: 3)
-
-**Response:** XML formatında
-
----
-
-**JSON Formatında:**
-```
-GET http://localhost:3000/fetchWeatherJson?lat=38.423733&lon=27.142826
-```
-
-**Response:** JSON formatında
-
-### 2. gRPC Endpoint (Port 50051)
-
-**Proto Tanımı:**
-```protobuf
-service WeatherService {
-  rpc GetWeather (WeatherRequest) returns (WeatherResponse);
-}
-
-message WeatherRequest {
-  double lat = 1;
-  double lon = 2;
-}
-
-message WeatherResponse {
-  string json = 1;
-}
-```
-
-**Proto dosyası:** `grpc/weather.proto`
-
-### 3. Health Check
-
-```
-GET http://localhost:3000/health
-```
-
-**Response:**
-```json
-{
-  "status": "OK",
-  "timestamp": "2025-12-14T10:30:00.000Z"
-}
-```
-
-## ASP.NET Integration
-
-### SOAP Request Örneği (.NET Minimal API)
-
-```csharp
-var builder = WebApplication.CreateBuilder(args);
-var app = builder.Build();
-
-app.MapGet("/weather/soap", async (HttpContext http) =>
-{
-    var lat = 38.423733;
-    var lon = 27.142826;
-    var startDate = DateTime.UtcNow.ToString("yyyy-MM-dd");
-    var numDays = 3;
-
-    var nodeJsUrl = $"http://localhost:3000/fetchWeather?lat={lat}&lon={lon}&startDate={startDate}&numDays={numDays}";
-
-    using var client = new HttpClient();
-    var response = await client.GetAsync(nodeJsUrl);
-    var body = await response.Content.ReadAsStringAsync();
-
-    return Results.Content(body, "application/xml");
-});
-
-app.Run();
-```
-
-### gRPC Request Örneği (.NET)
-
-```csharp
-using Grpc.Net.Client;
-
-var channel = GrpcChannel.ForAddress("http://localhost:50051");
-var client = new WeatherService.WeatherServiceClient(channel);
-
-var request = new WeatherRequest 
-{ 
-    Lat = 38.423733,
-    Lon = 27.142826 
-};
-
-var response = await client.GetWeatherAsync(request);
-Console.WriteLine(response.Json);
-```
-
-## Yapı
-
-```
-havadurumu-soa/
-├── server.js                    # Ana Express sunucusu
-├── meteoblueClient.js           # Meteoblue API istemcisi
-├── grpc/
-│   ├── grpcServer.js           # gRPC sunucu
-│   └── weather.proto           # gRPC proto tanımı
-├── soap/
-│   └── soapServer.js           # SOAP servisi
-├── testSOAP.js                 # SOAP test
-├── DOTNET_INTEGRATION.js       # .NET entegrasyon rehberi
-└── package.json
-```
-
-## Error Handling
-
-Her iki protokol de hataları düzgün şekilde işler:
-
-- **SOAP/REST:**
+- REST to SOAP bridge: `GET /fetchWeather?lat=38.423733&lon=27.142826&startDate=2025-12-14&numDays=3`
+  - Invokes the local SOAP service and responds with JSON shaped like:
   ```json
   {
-    "error": "Weather data could not be fetched",
-    "message": "Error details..."
+    "observations": [ { "lat": 38.42, "lon": 27.14, "observed_at": "2025-12-14T00:00:00", ... } ],
+    "json": { "latitude": 38.42, "hourly": { "time": [...] } },
+    "temperature": 8.1,
+    "humidity": 70,
+    "status": "OK"
   }
   ```
 
-- **gRPC:**
+- SOAP service: `POST /soap` (WSDL at `/soap?wsdl`)
+  - Operation `GetWeather` expects `Latitude` and `Longitude` (double).
+  - Response contains `Json` (string), `Observations` (array of observation DTOs), `Temperature`, `Humidity`, and `Status`.
+
+- gRPC: `GetWeather` on `WeatherService` (proto in `grpc/weather.proto`)
+  ```proto
+  service WeatherService {
+    rpc GetWeather (WeatherRequest) returns (WeatherResponse);
+  }
+
+  message WeatherRequest { double lat = 1; double lon = 2; }
+  message WeatherResponse { string json = 1; }
   ```
-  Status: INTERNAL
-  Message: Weather fetch failed: Error details...
-  ```
 
-## Test Etme
+- Health check: `GET /health` → `{ "status": "OK", "timestamp": "2025-12-14T10:30:00.000Z" }`
 
-Terminal 1'de sunucuyu başlat:
-```bash
-node server.js
+- Logs:
+  - `GET /logs?protocol=SOAP|REST|gRPC&count=10&date=YYYY-MM-DD` (defaults to last 10 of today)
+  - `GET /logs/files` to list existing log files
+
+Log files are written to `logs/requests/requests-YYYY-MM-DD.log` in JSON-per-line format.
+
+## Background push job
+
+`pushToCoreApi.js` runs automatically on startup. It:
+
+- Fetches data via SOAP (`/fetchWeather`) and falls back to gRPC if SOAP fails
+- Builds observation DTOs and posts them to the Core API batch ingest endpoint
+- Logs successes/failures to the Core API log endpoint
+- Uses HTTPS with certificate verification disabled; adjust the URLs and TLS handling before production use
+
+## Testing
+
+- SOAP path (REST→SOAP): `node testSOAP.js`
+- gRPC path: `node testGRPC.js`
+
+## Project layout
+
+```
+server.js                 # Express entry point, starts SOAP, REST, gRPC, logs, push job
+farApi.js                 # Open-Meteo client
+grpc/grpcServer.js        # gRPC server using weather.proto
+grpc/weather.proto        # Proto definition
+soap/soapServer.js        # SOAP service implementation and client helper
+soap/weather.wsdl         # WSDL served at /soap?wsdl
+pushToCoreApi.js          # Background job to push observations to Core API
+logger.js                 # File-based JSON request logger
+testSOAP.js / testGRPC.js # Simple smoke tests for SOAP and gRPC
+DOTNET_INTEGRATION.js     # Detailed .NET integration guide (non-runtime)
 ```
 
-Bu komut **her iki protokolü de başlatır:**
-- REST/SOAP Server: http://localhost:3000
-- gRPC Server: localhost:50051
+## Notes and recommendations
 
-### SOAP Test
-
-Terminal 2'de:
-```bash
-node testSOAP.js
-```
-
-### gRPC Test
-
-Terminal 2'de:
-```bash
-node testGRPC.js
-```
-
-
-
-### Debug Logları
-
-Terminal 2'de logları görüntüle:
-```bash
-# En son 10 log
-curl http://localhost:3000/logs
-
-# Sadece gRPC logları
-curl "http://localhost:3000/logs?protocol=gRPC"
-
-# Sadece SOAP logları  
-curl "http://localhost:3000/logs?protocol=SOAP"
-
-# Log dosyalarını listele
-curl http://localhost:3000/logs/files
-```
-
-Loglar şurada depolanır: `./logs/requests/requests-YYYY-MM-DD.log`
-
-## Veri Kaynakları
-
-- **Birincil:** Meteoblue API (JSON)
-- **Yedek:** NOAA SOAP Servisi (XML)
-
-Birincil kaynak başarısız olursa, sistem otomatik olarak yedek kaynağa geçer.
-
-## Timeout Ayarları
-
-- REST/SOAP: 30 saniye
-- gRPC: Sunucu timeout'u yok (client tarafında ayarlanmalı)
-
-## Notlar
-
-- Weatherblue API Key'i güvenli bir yere taşıyın (environment variables)
-- Üretim ortamında HTTPS/TLS kullanın
-- Rate limiting ekleyin
-- Veri caching mekanizması ekleyin
+- Provide your own `.env` and avoid hard-coding Core API URLs in `pushToCoreApi.js` for production
+- Enable TLS and certificates for any real deployment
+- Add rate limiting and caching if this will be exposed publicly
+- Client-side timeouts are recommended for gRPC calls; REST uses the `REST_TIMEOUT` value
